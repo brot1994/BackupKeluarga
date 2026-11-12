@@ -9,12 +9,26 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.RandomAccessFile
 import java.time.Instant
 
 data class RemoteItem(val id: String, val size: Long)
+
+/** File foto/video di OneDrive. rel = "<perangkat>/<folder>/.../<nama>" relatif terhadap folder pemakai. */
+data class RemoteFile(
+    val id: String,
+    val name: String,
+    val size: Long,
+    val modified: Long,
+    val isVideo: Boolean,
+    val rel: String,
+) {
+    val device: String get() = rel.substringBefore('/')
+}
 
 /** Pemanggilan Microsoft Graph (OneDrive) langsung, tanpa aplikasi OneDrive. */
 object Graph {
@@ -129,6 +143,145 @@ object Graph {
         saveUrl(null)
         if (!allowRestart) throw java.io.IOException("Sesi upload berakhir, akan dicoba lagi")
         return upload(context, file, remotePath, null, saveUrl, progress, allowRestart = false)
+    }
+
+    // ---------------- Membaca isi OneDrive (galeri) ----------------
+
+    private val RETRY = Any()
+
+    /** GET dengan token; isi respons diproses oleh [handle] (berjalan di thread IO). */
+    private suspend fun <T> authedRaw(context: Context, url: String, handle: (Response) -> T): T {
+        var token = Auth.token(context)
+        var attempt = 0
+        while (true) {
+            val req = Request.Builder().url(url).get().header("Authorization", "Bearer $token").build()
+            val first = attempt == 0
+            val result: Any? = withContext(Dispatchers.IO) {
+                Http.executeWithRetry(req).use { r ->
+                    if (r.code == 401 && first) RETRY else handle(r)
+                }
+            }
+            if (result === RETRY) {
+                token = Auth.forceRefresh(context)
+                attempt++
+                continue
+            }
+            @Suppress("UNCHECKED_CAST")
+            return result as T
+        }
+    }
+
+    private suspend fun itemIdByPath(context: Context, path: String): String? {
+        val (code, body) = authed(context) {
+            it.url("$BASE/me/drive/root:/${encodePath(path)}?\$select=id").get()
+        }
+        if (code == 404) return null
+        if (code != 200) throw HttpException(code, body)
+        return JSONObject(body).getString("id")
+    }
+
+    private fun parseTime(s: String?): Long? =
+        if (s.isNullOrBlank()) null else try {
+            Instant.parse(s).toEpochMilli()
+        } catch (e: Exception) {
+            null
+        }
+
+    /** Semua foto & video di bawah folder [rootPath] (termasuk subfolder). */
+    suspend fun listMediaRecursive(context: Context, rootPath: String): List<RemoteFile> {
+        val rootId = itemIdByPath(context, rootPath) ?: return emptyList()
+        val out = ArrayList<RemoteFile>()
+        val queue = ArrayDeque<Pair<String, String>>()
+        queue.add(rootId to "")
+        val select = "id,name,size,file,folder,fileSystemInfo,photo"
+        while (queue.isNotEmpty()) {
+            val (folderId, relDir) = queue.removeFirst()
+            var url: String? = "$BASE/me/drive/items/$folderId/children?\$top=500&\$select=$select"
+            while (url != null) {
+                val pageUrl: String = url
+                val (code, body) = authed(context) { it.url(pageUrl).get() }
+                if (code != 200) throw HttpException(code, body)
+                val j = JSONObject(body)
+                val arr = j.optJSONArray("value") ?: JSONArray()
+                for (i in 0 until arr.length()) {
+                    val o = arr.getJSONObject(i)
+                    val name = o.optString("name")
+                    if (o.has("folder")) {
+                        queue.add(o.getString("id") to "$relDir$name/")
+                        continue
+                    }
+                    if (!o.has("file")) continue
+                    val mime = o.optJSONObject("file")?.optString("mimeType").orEmpty()
+                    val isVideo = mime.startsWith("video/") || Media.isVideo(name)
+                    val isImage = mime.startsWith("image/") || Media.isImage(name)
+                    if (!isVideo && !isImage) continue
+                    val modified = parseTime(o.optJSONObject("fileSystemInfo")?.optString("lastModifiedDateTime"))
+                        ?: parseTime(o.optJSONObject("photo")?.optString("takenDateTime"))
+                        ?: 0L
+                    out += RemoteFile(
+                        id = o.getString("id"),
+                        name = name,
+                        size = o.optLong("size", 0L),
+                        modified = modified,
+                        isVideo = isVideo,
+                        rel = "$relDir$name",
+                    )
+                }
+                url = j.optString("@odata.nextLink").ifEmpty { null }
+            }
+        }
+        return out
+    }
+
+    private fun saveBody(r: Response, dest: File, progress: ((Long, Long) -> Unit)?): Boolean {
+        if (r.code != 200) return false
+        val body = r.body ?: return false
+        val total = body.contentLength()
+        dest.parentFile?.mkdirs()
+        val tmp = File(dest.parentFile, dest.name + ".part")
+        body.byteStream().use { input ->
+            tmp.outputStream().use { out ->
+                val buf = ByteArray(64 * 1024)
+                var done = 0L
+                var lastPct = -1L
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    done += n
+                    if (progress != null && total > 0) {
+                        val pct = done * 100 / total
+                        if (pct != lastPct) {
+                            lastPct = pct
+                            progress(done, total)
+                        }
+                    }
+                }
+            }
+        }
+        dest.delete()
+        return tmp.renameTo(dest)
+    }
+
+    /** Unduh isi file OneDrive ke [dest]. */
+    suspend fun downloadTo(
+        context: Context,
+        id: String,
+        dest: File,
+        progress: ((Long, Long) -> Unit)? = null,
+    ): Boolean = authedRaw(context, "$BASE/me/drive/items/$id/content") { r -> saveBody(r, dest, progress) }
+
+    /** Unduh gambar kecil (thumbnail) buatan OneDrive. */
+    suspend fun thumbnailTo(context: Context, id: String, dest: File): Boolean =
+        authedRaw(context, "$BASE/me/drive/items/$id/thumbnails/0/medium/content") { r -> saveBody(r, dest, null) }
+
+    /** Alamat unduh sementara (tanpa login) untuk memutar video langsung dari OneDrive. */
+    suspend fun downloadUrl(context: Context, id: String): String? {
+        val (code, body) = authed(context) {
+            it.url("$BASE/me/drive/items/$id?select=id,@microsoft.graph.downloadUrl").get()
+        }
+        if (code != 200) return null
+        return JSONObject(body).optString("@microsoft.graph.downloadUrl").ifEmpty { null }
     }
 
     private fun sendChunks(
