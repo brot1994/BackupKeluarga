@@ -44,7 +44,7 @@ jobs:
 
       - name: Bungkus APK dalam .zip
         run: |
-          VERSION="0.2.${{ github.run_number }}"
+          VERSION="0.3.${{ github.run_number }}"
           mkdir -p out
           cp app/build/outputs/apk/release/app-release.apk "out/BackupKeluarga-v$VERSION.apk"
           (cd out && zip -j "../BackupKeluarga.zip" "BackupKeluarga-v$VERSION.apk")

@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +60,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.work.ExistingPeriodicWorkPolicy
 import id.bram.backupkeluarga.BuildConfig
+import id.bram.backupkeluarga.Cleaner
 import id.bram.backupkeluarga.Db
 import id.bram.backupkeluarga.Prefs
 import id.bram.backupkeluarga.Scheduler
@@ -70,7 +72,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
-fun HomeScreen(onSignedOut: () -> Unit) {
+fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val db = remember { Db.get(context) }
@@ -86,6 +88,24 @@ fun HomeScreen(onSignedOut: () -> Unit) {
     var lastError by remember { mutableStateOf(prefs.lastError) }
     var needsReauth by remember { mutableStateOf(prefs.needsReauth) }
     var confirmSignOut by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<WatchedFolder?>(null) }
+    var askFirst by remember { mutableStateOf(prefs.askFirst) }
+    var freeBelowGb by remember { mutableIntStateOf(prefs.freeBelowGb) }
+    var freeable by remember { mutableStateOf(0 to 0L) }
+    var freedTotals by remember { mutableStateOf(0 to 0L) }
+
+    // Hitung file yang bisa dibebaskan (lebih jarang, karena menelusuri folder).
+    LaunchedEffect(folders) {
+        while (true) {
+            val (f, t) = withContext(Dispatchers.IO) {
+                val l = Cleaner.eligible(context)
+                (l.size to l.sumOf { it.size }) to db.freedTotals()
+            }
+            freeable = f
+            freedTotals = t
+            delay(15_000)
+        }
+    }
 
     // Cek ulang izin setiap kali kembali ke aplikasi.
     var resumeTick by remember { mutableIntStateOf(0) }
@@ -313,10 +333,25 @@ fun HomeScreen(onSignedOut: () -> Unit) {
                     Text(formatBytes(stats.uploadedBytes), fontSize = 12.sp, color = Muted)
                 }
                 Panel(Modifier.weight(1f)) {
-                    Text("Mode", fontSize = 13.sp, color = Muted, fontWeight = FontWeight.SemiBold)
-                    Text("Salin", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
-                    Text("File di HP tidak dihapus", fontSize = 12.sp, color = Muted)
+                    Text("Dibebaskan", fontSize = 13.sp, color = Muted, fontWeight = FontWeight.SemiBold)
+                    Text(formatBytes(freedTotals.second), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+                    Text("${freedTotals.first} file hanya di OneDrive", fontSize = 12.sp, color = Muted)
                 }
+            }
+
+            Button(
+                onClick = onOpenClean,
+                colors = ButtonDefaults.buttonColors(containerColor = Ink),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp),
+            ) {
+                Text(
+                    if (freeable.first > 0) "Kosongkan ruang sekarang · ${formatBytes(freeable.second)}"
+                    else "Kosongkan ruang",
+                    fontWeight = FontWeight.Bold,
+                )
             }
 
             // ---- Folder ----
@@ -329,13 +364,19 @@ fun HomeScreen(onSignedOut: () -> Unit) {
                     Text("Belum ada folder. Ketuk + Tambah.", color = Muted, fontSize = 14.sp)
                 }
                 folders.forEach { f ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { editing = f },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Column(Modifier.weight(1f)) {
                             Text(f.name, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Text(
                                 f.path.removePrefix("/storage/emulated/0/"),
                                 fontSize = 12.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             )
+                            Text(f.ruleText(), fontSize = 12.sp, color = Ink)
                             val missing = !File(f.path).isDirectory
                             Text(
                                 if (missing && storageOk) "Folder tidak ditemukan"
@@ -345,11 +386,12 @@ fun HomeScreen(onSignedOut: () -> Unit) {
                             )
                         }
                         Text(
-                            "Salin",
-                            fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E5A3B),
+                            if (f.move) "Pindah" else "Salin",
+                            fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            color = if (f.move) Color(0xFF8A3F06) else Color(0xFF1E5A3B),
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(GoodSoft)
+                                .background(if (f.move) WarnSoft else GoodSoft)
                                 .padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                         IconButton(onClick = {
@@ -362,6 +404,7 @@ fun HomeScreen(onSignedOut: () -> Unit) {
                         }
                     }
                 }
+                Text("Ketuk nama folder untuk mengatur Salin / Pindahkan.", fontSize = 12.sp, color = Muted)
             }
 
             // ---- Pengaturan ----
@@ -377,6 +420,52 @@ fun HomeScreen(onSignedOut: () -> Unit) {
                     prefs.chargingOnly = it
                     Scheduler.schedulePeriodic(context, ExistingPeriodicWorkPolicy.UPDATE)
                 }
+            }
+
+            // ---- Penghapusan dari HP ----
+            SectionLabel("Penghapusan dari HP")
+            Panel {
+                SwitchRow(
+                    "Tanya dulu sebelum menghapus",
+                    "Kirim notifikasi, Om yang menekan tombol hapus",
+                    askFirst,
+                ) {
+                    askFirst = it
+                    prefs.askFirst = it
+                    prefs.readyNotice = null
+                }
+                if (!askFirst) {
+                    SwitchRow(
+                        "Hanya jika ruang HP menipis",
+                        if (freeBelowGb > 0) "Hapus otomatis saat ruang bebas < $freeBelowGb GB"
+                        else "Hapus otomatis begitu memenuhi aturan folder",
+                        freeBelowGb > 0,
+                    ) {
+                        freeBelowGb = if (it) 20 else 0
+                        prefs.freeBelowGb = freeBelowGb
+                    }
+                    if (freeBelowGb > 0) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Batas ruang bebas", modifier = Modifier.weight(1f), fontSize = 14.sp)
+                            listOf(10, 20, 50).forEach { gb ->
+                                val sel = freeBelowGb == gb
+                                OutlinedButton(
+                                    onClick = {
+                                        freeBelowGb = gb
+                                        prefs.freeBelowGb = gb
+                                    },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (sel) AccentSoft else Color.Transparent,
+                                    ),
+                                ) { Text("$gb GB", fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal) }
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "Berlaku untuk folder bermode \"Pindahkan\". File selalu dicek ulang ke OneDrive sebelum dihapus.",
+                    fontSize = 12.sp, color = Muted,
+                )
             }
 
             // ---- Riwayat ----
@@ -406,6 +495,27 @@ fun HomeScreen(onSignedOut: () -> Unit) {
             }
             Text("Versi ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = Muted)
         }
+    }
+
+    editing?.let { f ->
+        FolderRuleDialog(
+            folder = f,
+            onSave = { updatedFolder ->
+                val updated = folders.map { if (it.path == f.path) updatedFolder else it }
+                prefs.folders = updated
+                folders = updated
+                prefs.readyNotice = null
+                editing = null
+                if (updatedFolder.move && !f.move) {
+                    Toast.makeText(
+                        context,
+                        "Mode Pindahkan aktif. ${if (prefs.askFirst) "Om akan diberi tahu sebelum ada file yang dihapus." else ""}",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            },
+            onDismiss = { editing = null },
+        )
     }
 
     if (confirmSignOut) {

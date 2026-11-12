@@ -5,7 +5,24 @@ import android.os.Environment
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class WatchedFolder(val name: String, val path: String)
+/**
+ * Folder yang dibackup. move = mode "Pindahkan": file dihapus dari HP setelah aman di OneDrive,
+ * kalau umurnya ≥ minAgeDays hari dan (kalau minSizeMb > 0) ukurannya ≥ minSizeMb MB.
+ */
+data class WatchedFolder(
+    val name: String,
+    val path: String,
+    val move: Boolean = false,
+    val minAgeDays: Int = 5,
+    val minSizeMb: Int = 0,
+) {
+    fun ruleText(): String =
+        if (!move) "Tetap di HP, hanya disalin"
+        else buildString {
+            append("Hapus dari HP setelah $minAgeDays hari")
+            if (minSizeMb > 0) append(", > $minSizeMb MB")
+        }
+}
 
 class Prefs(context: Context) {
     private val sp = context.applicationContext
@@ -39,6 +56,20 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("charging_only", false)
         set(v) { sp.edit().putBoolean("charging_only", v).apply() }
 
+    /** Tanya dulu sebelum menghapus file dari HP (bawaan: ya). */
+    var askFirst: Boolean
+        get() = sp.getBoolean("ask_first", true)
+        set(v) { sp.edit().putBoolean("ask_first", v).apply() }
+
+    /** Hapus otomatis hanya kalau ruang kosong HP di bawah angka ini (GB). 0 = tidak dibatasi. */
+    var freeBelowGb: Int
+        get() = sp.getInt("free_below_gb", 0)
+        set(v) { sp.edit().putInt("free_below_gb", v).apply() }
+
+    var readyNotice: String?
+        get() = sp.getString("ready_notice", null)
+        set(v) { sp.edit().putString("ready_notice", v).apply() }
+
     var lastSyncAt: Long
         get() = sp.getLong("last_sync", 0L)
         set(v) { sp.edit().putLong("last_sync", v).apply() }
@@ -54,7 +85,13 @@ class Prefs(context: Context) {
                 val arr = JSONArray(raw)
                 (0 until arr.length()).map {
                     val o = arr.getJSONObject(it)
-                    WatchedFolder(o.getString("name"), o.getString("path"))
+                    WatchedFolder(
+                        name = o.getString("name"),
+                        path = o.getString("path"),
+                        move = o.optBoolean("move", false),
+                        minAgeDays = o.optInt("min_age_days", 5),
+                        minSizeMb = o.optInt("min_size_mb", 0),
+                    )
                 }
             } catch (e: Exception) {
                 listOf(defaultCamera())
@@ -62,7 +99,12 @@ class Prefs(context: Context) {
         }
         set(list) {
             val arr = JSONArray()
-            list.forEach { arr.put(JSONObject().put("name", it.name).put("path", it.path)) }
+            list.forEach {
+                arr.put(
+                    JSONObject().put("name", it.name).put("path", it.path).put("move", it.move)
+                        .put("min_age_days", it.minAgeDays).put("min_size_mb", it.minSizeMb)
+                )
+            }
             sp.edit().putString("folders", arr.toString()).apply()
         }
 

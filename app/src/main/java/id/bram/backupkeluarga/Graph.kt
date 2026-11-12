@@ -67,9 +67,21 @@ object Graph {
         return JSONObject(body)
     }
 
-    private suspend fun createSession(context: Context, remotePath: String, file: File): String {
+    data class RemoteInfo(val size: Long, val quickXor: String?)
+
+    /** Info file di OneDrive untuk verifikasi; null kalau file sudah tidak ada. */
+    suspend fun itemInfo(context: Context, id: String): RemoteInfo? {
+        val (code, body) = authed(context) { it.url("$BASE/me/drive/items/$id?\$select=id,size,file").get() }
+        if (code == 404) return null
+        if (code != 200) throw HttpException(code, body)
+        val j = JSONObject(body)
+        val hash = j.optJSONObject("file")?.optJSONObject("hashes")?.optString("quickXorHash")
+        return RemoteInfo(j.optLong("size", -1L), hash?.ifEmpty { null })
+    }
+
+    private suspend fun createSession(context: Context, remotePath: String, file: File, conflict: String): String {
         val item = JSONObject()
-            .put("@microsoft.graph.conflictBehavior", "replace")
+            .put("@microsoft.graph.conflictBehavior", conflict)
             .put(
                 "fileSystemInfo",
                 JSONObject().put("lastModifiedDateTime", Instant.ofEpochMilli(file.lastModified()).toString())
@@ -107,11 +119,12 @@ object Graph {
         saveUrl: (String?) -> Unit,
         progress: (Long, Long) -> Unit,
         allowRestart: Boolean = true,
+        conflict: String = "replace",
     ): RemoteItem {
         val size = file.length()
         if (size == 0L) {
             val (code, body) = authed(context) {
-                it.url("$BASE/me/drive/root:/${encodePath(remotePath)}:/content")
+                it.url("$BASE/me/drive/root:/${encodePath(remotePath)}:/content?@microsoft.graph.conflictBehavior=$conflict")
                     .put(ByteArray(0).toRequestBody(null))
             }
             if (code !in 200..299) throw HttpException(code, body)
@@ -127,7 +140,7 @@ object Graph {
             if (next == null) url = null else pos = next
         }
         if (url == null) {
-            url = createSession(context, remotePath, file)
+            url = createSession(context, remotePath, file, conflict)
             saveUrl(url)
             pos = 0L
         }
@@ -142,7 +155,7 @@ object Graph {
         // Sesi upload kedaluwarsa di server: mulai ulang sekali dari awal.
         saveUrl(null)
         if (!allowRestart) throw java.io.IOException("Sesi upload berakhir, akan dicoba lagi")
-        return upload(context, file, remotePath, null, saveUrl, progress, allowRestart = false)
+        return upload(context, file, remotePath, null, saveUrl, progress, allowRestart = false, conflict = conflict)
     }
 
     // ---------------- Membaca isi OneDrive (galeri) ----------------

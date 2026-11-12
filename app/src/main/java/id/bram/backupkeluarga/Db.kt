@@ -9,7 +9,7 @@ import java.io.File
 
 /** Catatan file mana saja yang sudah ter-upload, supaya tidak dikirim dua kali. */
 class Db private constructor(context: Context) :
-    SQLiteOpenHelper(context, "backup.db", null, 1) {
+    SQLiteOpenHelper(context, "backup.db", null, 2) {
 
     data class Rec(
         val path: String,
@@ -21,6 +21,7 @@ class Db private constructor(context: Context) :
         val uploadUrl: String?,
         val uploadedAt: Long,
         val error: String?,
+        val freedAt: Long,
     )
 
     data class Stats(val uploaded: Int, val uploadedBytes: Long, val pending: Int, val failed: Int)
@@ -32,7 +33,7 @@ class Db private constructor(context: Context) :
 
         private val COLS = arrayOf(
             "path", "folder", "size", "mtime", "status",
-            "remote_id", "upload_url", "uploaded_at", "error"
+            "remote_id", "upload_url", "uploaded_at", "error", "freed_at"
         )
 
         @Volatile
@@ -49,12 +50,17 @@ class Db private constructor(context: Context) :
             "CREATE TABLE files(" +
                 "path TEXT PRIMARY KEY, folder TEXT NOT NULL, size INTEGER NOT NULL, " +
                 "mtime INTEGER NOT NULL, status INTEGER NOT NULL, remote_id TEXT, " +
-                "upload_url TEXT, uploaded_at INTEGER NOT NULL DEFAULT 0, error TEXT)"
+                "upload_url TEXT, uploaded_at INTEGER NOT NULL DEFAULT 0, error TEXT, " +
+                "freed_at INTEGER NOT NULL DEFAULT 0)"
         )
         db.execSQL("CREATE INDEX idx_status ON files(status, uploaded_at)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE files ADD COLUMN freed_at INTEGER NOT NULL DEFAULT 0")
+        }
+    }
 
     private fun Cursor.str(i: Int): String? = if (isNull(i)) null else getString(i)
 
@@ -68,6 +74,7 @@ class Db private constructor(context: Context) :
         uploadUrl = str(6),
         uploadedAt = getLong(7),
         error = str(8),
+        freedAt = getLong(9),
     )
 
     fun get(path: String): Rec? =
@@ -75,7 +82,7 @@ class Db private constructor(context: Context) :
             if (it.moveToFirst()) it.toRec() else null
         }
 
-    fun markPending(path: String, folder: String, size: Long, mtime: Long, uploadUrl: String?) {
+    fun markPending(path: String, folder: String, size: Long, mtime: Long, uploadUrl: String?, freedAt: Long = 0L) {
         val cv = ContentValues().apply {
             put("path", path)
             put("folder", folder)
@@ -84,6 +91,7 @@ class Db private constructor(context: Context) :
             put("status", PENDING)
             put("upload_url", uploadUrl)
             put("uploaded_at", 0L)
+            put("freed_at", freedAt)
         }
         writableDatabase.insertWithOnConflict("files", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
     }
@@ -102,6 +110,7 @@ class Db private constructor(context: Context) :
             put("size", size)
             put("mtime", mtime)
             put("uploaded_at", System.currentTimeMillis())
+            put("freed_at", 0L)
         }
         writableDatabase.update("files", cv, "path=?", arrayOf(path))
     }
@@ -113,6 +122,21 @@ class Db private constructor(context: Context) :
         }
         writableDatabase.update("files", cv, "path=?", arrayOf(path))
     }
+
+    fun markFreed(path: String) {
+        val cv = ContentValues().apply { put("freed_at", System.currentTimeMillis()) }
+        writableDatabase.update("files", cv, "path=?", arrayOf(path))
+    }
+
+    fun delete(path: String) {
+        writableDatabase.delete("files", "path=?", arrayOf(path))
+    }
+
+    /** Jumlah file & byte yang sudah dibebaskan dari HP (hanya ada di OneDrive). */
+    fun freedTotals(): Pair<Int, Long> =
+        readableDatabase.rawQuery(
+            "SELECT COUNT(*), COALESCE(SUM(size),0) FROM files WHERE freed_at>0", null
+        ).use { c -> if (c.moveToFirst()) c.getInt(0) to c.getLong(1) else 0 to 0L }
 
     fun stats(): Stats {
         var uploaded = 0

@@ -41,12 +41,63 @@ object Notifier {
         )
     }
 
+    const val EXTRA_OPEN = "open"
+    const val OPEN_CLEAN = "clean"
+    private const val ID_FREE = 4
+
     private fun openApp(context: Context): PendingIntent =
         PendingIntent.getActivity(
             context, 0,
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+
+    private fun openClean(context: Context): PendingIntent =
+        PendingIntent.getActivity(
+            context, 1,
+            Intent(context, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra(EXTRA_OPEN, OPEN_CLEAN),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+
+    private fun sizeText(bytes: Long): String {
+        val gb = bytes / (1024.0 * 1024 * 1024)
+        return if (gb >= 1) String.format(java.util.Locale("id"), "%.1f GB", gb)
+        else String.format(java.util.Locale("id"), "%.0f MB", bytes / (1024.0 * 1024))
+    }
+
+    @SuppressLint("MissingPermission")
+    fun readyToFree(context: Context, count: Int, bytes: Long) {
+        if (!canNotify(context)) return
+        val n = NotificationCompat.Builder(context, CH_ALERT)
+            .setSmallIcon(R.drawable.ic_stat_backup)
+            .setContentTitle("$count file siap dihapus dari HP (${sizeText(bytes)})")
+            .setContentText("Semua sudah aman di OneDrive. Ketuk untuk meninjau.")
+            .setAutoCancel(true)
+            .setContentIntent(openClean(context))
+            .build()
+        try {
+            NotificationManagerCompat.from(context).notify(ID_FREE, n)
+        } catch (e: SecurityException) {
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    fun freed(context: Context, count: Int, bytes: Long) {
+        if (!canNotify(context)) return
+        val n = NotificationCompat.Builder(context, CH_SYNC)
+            .setSmallIcon(R.drawable.ic_stat_backup)
+            .setContentTitle("$count file dipindah ke OneDrive")
+            .setContentText("${sizeText(bytes)} ruang HP dibebaskan")
+            .setAutoCancel(true)
+            .setContentIntent(openApp(context))
+            .build()
+        try {
+            NotificationManagerCompat.from(context).notify(ID_FREE, n)
+        } catch (e: SecurityException) {
+        }
+    }
 
     fun monitor(context: Context, folderCount: Int): Notification =
         NotificationCompat.Builder(context, CH_MONITOR)

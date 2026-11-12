@@ -70,7 +70,12 @@ object SyncEngine {
 
                     val rec = withContext(Dispatchers.IO) { db.get(path) }
                     val resume = if (rec != null && rec.size == size && rec.mtime == mtime) rec.uploadUrl else null
-                    withContext(Dispatchers.IO) { db.markPending(path, folder.name, size, mtime, resume) }
+                    // File baru dengan nama sama seperti file yang dulu sudah dipindah ke OneDrive:
+                    // jangan menimpa yang lama, simpan dengan nama lain.
+                    val conflict = if (rec != null && rec.freedAt > 0) "rename" else "replace"
+                    withContext(Dispatchers.IO) {
+                        db.markPending(path, folder.name, size, mtime, resume, rec?.freedAt ?: 0L)
+                    }
 
                     SyncState.flow.value = SyncState.Ui(
                         running = true, currentName = file.name, currentSent = 0L,
@@ -91,6 +96,7 @@ object SyncEngine {
                                     )
                                 }
                             },
+                            conflict = conflict,
                         )
                         if (item.size != size) {
                             throw IOException("Ukuran di OneDrive tidak cocok (${item.size} vs $size)")

@@ -43,7 +43,17 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             }
         }
 
-        if (outcome.authError) Notifier.authExpired(ctx)
+        if (outcome.authError) {
+            Notifier.authExpired(ctx)
+        } else {
+            try {
+                Cleaner.autoRun(ctx)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // penghapusan otomatis dicoba lagi di putaran berikutnya
+            }
+        }
         return if (outcome.failed > 0 && runAttemptCount < 3) Result.retry() else Result.success()
     }
 

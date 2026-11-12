@@ -20,8 +20,8 @@ Backup Keluarga/
 | Versi | Isi |
 |---|---|
 | v0.1 | Login dengan kode, backup **salin** (Kamera + folder pilihan), pantau otomatis + scan tiap 30 menit |
-| v0.2 | Aturan per folder, mode **pindahkan** dengan verifikasi, layar Kosongkan ruang |
-| v0.3 | Galeri gabungan HP + OneDrive |
+| v0.2 | Galeri gabungan HP + OneDrive (thumbnail, putar video, unduh & bagikan) |
+| v0.3 | Mode **pindahkan** per folder dengan verifikasi hash, layar Kosongkan ruang |
 | v0.4 | Mode keluarga: peran, PIN admin, putus akses, Amankan total |
 | v0.5 | Preset WhatsApp + pulihkan |
 
