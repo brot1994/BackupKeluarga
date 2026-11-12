@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -72,7 +73,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 @Composable
-fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit) {
+fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit, onOpenHelp: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { Prefs(context) }
     val db = remember { Db.get(context) }
@@ -188,6 +189,9 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit) {
                         listOfNotNull(prefs.device, prefs.upn).joinToString(" · "),
                         fontSize = 13.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
+                }
+                IconButton(onClick = onOpenHelp) {
+                    Icon(Icons.Filled.Info, contentDescription = "Bantuan", tint = Muted)
                 }
                 Box(
                     Modifier
@@ -490,6 +494,11 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit) {
             }
 
             Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onOpenHelp, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Info, contentDescription = null)
+                Spacer(Modifier.size(8.dp))
+                Text("Bantuan & panduan")
+            }
             TextButton(onClick = { confirmSignOut = true }) {
                 Text("Keluar dari akun di HP ini", color = BadRed)
             }

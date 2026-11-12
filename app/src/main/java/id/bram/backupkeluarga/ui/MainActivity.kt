@@ -83,10 +83,13 @@ private fun MainShell(openClean: MutableState<Boolean>, onSignedOut: () -> Unit)
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var viewer by remember { mutableStateOf<Pair<List<GalleryItem>, Int>?>(null) }
     var cleaning by openClean
+    var help by rememberSaveable { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
 
     val open = viewer
-    if (cleaning) {
+    if (help) {
+        HelpScreen(onClose = { help = false })
+    } else if (cleaning) {
         CleanScreen(onClose = { cleaning = false })
     } else if (open != null) {
         ViewerScreen(open.first, open.second, onClose = { viewer = null })
@@ -120,7 +123,11 @@ private fun MainShell(openClean: MutableState<Boolean>, onSignedOut: () -> Unit)
                     .consumeWindowInsets(pad)
             ) {
                 if (tab == 0) {
-                    HomeScreen(onSignedOut = onSignedOut, onOpenClean = { cleaning = true })
+                    HomeScreen(
+                        onSignedOut = onSignedOut,
+                        onOpenClean = { cleaning = true },
+                        onOpenHelp = { help = true },
+                    )
                 } else {
                     GalleryScreen(
                         gridState = gridState,
