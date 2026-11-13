@@ -16,12 +16,40 @@ data class WatchedFolder(
     val minAgeDays: Int = 5,
     val minSizeMb: Int = 0,
 ) {
+    /** Folder backup chat WhatsApp: tidak boleh dipindah, karena dibutuhkan untuk memulihkan chat. */
+    val lockedCopy: Boolean get() = isLockedCopy(path)
+
     fun ruleText(): String =
-        if (!move) "Tetap di HP, hanya disalin"
+        if (lockedCopy) "Selalu disalin (backup chat, tidak boleh dihapus)"
+        else if (!move) "Tetap di HP, hanya disalin"
         else buildString {
             append("Hapus dari HP setelah $minAgeDays hari")
             if (minSizeMb > 0) append(", > $minSizeMb MB")
         }
+
+    companion object {
+        fun isLockedCopy(path: String): Boolean {
+            val p = path.lowercase()
+            return p.contains("/databases") || p.contains("/backups")
+        }
+
+        /**
+         * Aturan bawaan untuk folder yang baru ditambahkan:
+         * foto/video → Pindahkan 30 hari; dokumen, unduhan, backup chat, dan lainnya → Salin.
+         */
+        fun withDefaults(name: String, path: String): WatchedFolder {
+            val p = path.lowercase()
+            if (isLockedCopy(p)) return WatchedFolder(name, path, move = false)
+            val docs = listOf("/documents", "/download", "/document")
+            if (docs.any { p.contains(it) }) return WatchedFolder(name, path, move = false)
+            val media = listOf(
+                "/dcim", "/camera", "/screenshots", "/pictures", "/movies", "/video",
+                "/whatsapp images", "/whatsapp video", "/whatsapp animated gifs",
+            )
+            return if (media.any { p.contains(it) }) WatchedFolder(name, path, move = true, minAgeDays = 30)
+            else WatchedFolder(name, path, move = false)
+        }
+    }
 }
 
 class Prefs(context: Context) {

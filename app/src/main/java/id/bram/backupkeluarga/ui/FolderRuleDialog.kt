@@ -43,6 +43,15 @@ fun FolderRuleDialog(folder: WatchedFolder, onSave: (WatchedFolder) -> Unit, onD
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(folder.path.removePrefix("/storage/emulated/0/"), fontSize = 12.sp, color = Muted)
 
+                if (folder.lockedCopy) {
+                    Text(
+                        "Folder ini berisi backup chat. Isinya selalu disalin ke OneDrive dan tidak pernah dihapus dari HP, " +
+                            "karena dibutuhkan untuk memulihkan chat.",
+                        fontSize = 13.sp, color = Ink,
+                    )
+                    return@Column
+                }
+
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -108,7 +117,7 @@ fun FolderRuleDialog(folder: WatchedFolder, onSave: (WatchedFolder) -> Unit, onD
             TextButton(onClick = {
                 onSave(
                     folder.copy(
-                        move = move,
+                        move = move && !folder.lockedCopy,
                         minAgeDays = days.toIntOrNull()?.coerceIn(0, 3650) ?: 5,
                         minSizeMb = if (sizeOn) (sizeMb.toIntOrNull() ?: 0).coerceAtLeast(0) else 0,
                     )

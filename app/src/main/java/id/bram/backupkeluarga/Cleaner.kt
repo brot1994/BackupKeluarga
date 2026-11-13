@@ -48,7 +48,7 @@ object Cleaner {
         val now = System.currentTimeMillis()
         val out = ArrayList<Candidate>()
         for (folder in prefs.folders) {
-            if (!folder.move) continue
+            if (!folder.move || folder.lockedCopy) continue
             val root = File(folder.path)
             if (!root.isDirectory) continue
             root.walkTopDown()

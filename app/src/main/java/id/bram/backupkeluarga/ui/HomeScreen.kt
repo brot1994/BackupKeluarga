@@ -165,9 +165,15 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit, onOpenHelp: () 
         var name = base
         var n = 2
         while (folders.any { it.name.equals(name, ignoreCase = true) }) name = "$base ${n++}"
-        val updated = folders + WatchedFolder(name, path)
+        val added = WatchedFolder.withDefaults(name, path)
+        val updated = folders + added
         prefs.folders = updated
         folders = updated
+        Toast.makeText(
+            context,
+            "Folder $name ditambahkan: ${if (added.move) "Pindahkan setelah ${added.minAgeDays} hari" else "Salin"}. Ketuk namanya untuk mengubah.",
+            Toast.LENGTH_LONG,
+        ).show()
         Scheduler.startMonitor(context)
         Scheduler.syncNow(context)
     }
