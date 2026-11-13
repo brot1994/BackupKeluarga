@@ -98,6 +98,14 @@ class Prefs(context: Context) {
         get() = sp.getString("ready_notice", null)
         set(v) { sp.edit().putString("ready_notice", v).apply() }
 
+    var quotaTotal: Long
+        get() = sp.getLong("quota_total", 0L)
+        set(v) { sp.edit().putLong("quota_total", v).apply() }
+
+    var quotaRemaining: Long
+        get() = sp.getLong("quota_remaining", 0L)
+        set(v) { sp.edit().putLong("quota_remaining", v).apply() }
+
     var lastSyncAt: Long
         get() = sp.getLong("last_sync", 0L)
         set(v) { sp.edit().putLong("last_sync", v).apply() }

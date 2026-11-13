@@ -67,6 +67,19 @@ object Graph {
         return JSONObject(body)
     }
 
+    data class Quota(val total: Long, val used: Long, val remaining: Long)
+
+    /** Kapasitas OneDrive (total, terpakai, sisa). */
+    suspend fun quota(context: Context): Quota? {
+        val (code, body) = authed(context) { it.url("$BASE/me/drive?\$select=quota").get() }
+        if (code != 200) return null
+        val q = JSONObject(body).optJSONObject("quota") ?: return null
+        val total = q.optLong("total", 0L)
+        val used = q.optLong("used", 0L)
+        val remaining = q.optLong("remaining", total - used)
+        return if (total > 0) Quota(total, used, remaining) else null
+    }
+
     data class RemoteInfo(val size: Long, val quickXor: String?)
 
     /** Info file di OneDrive untuk verifikasi; null kalau file sudah tidak ada. */

@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -63,6 +64,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import id.bram.backupkeluarga.BuildConfig
 import id.bram.backupkeluarga.Cleaner
 import id.bram.backupkeluarga.Db
+import id.bram.backupkeluarga.Graph
 import id.bram.backupkeluarga.Prefs
 import id.bram.backupkeluarga.Scheduler
 import id.bram.backupkeluarga.SyncState
@@ -94,6 +96,27 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit, onOpenHelp: () 
     var freeBelowGb by remember { mutableIntStateOf(prefs.freeBelowGb) }
     var freeable by remember { mutableStateOf(0 to 0L) }
     var freedTotals by remember { mutableStateOf(0 to 0L) }
+    var quotaTotal by remember { mutableStateOf(prefs.quotaTotal) }
+    var quotaRemaining by remember { mutableStateOf(prefs.quotaRemaining) }
+
+    // Sisa kapasitas OneDrive, diperbarui tiap 5 menit selama layar terbuka.
+    LaunchedEffect(Unit) {
+        while (true) {
+            try {
+                Graph.quota(context)?.let { q ->
+                    quotaTotal = q.total
+                    quotaRemaining = q.remaining
+                    prefs.quotaTotal = q.total
+                    prefs.quotaRemaining = q.remaining
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // tampilkan angka terakhir yang tersimpan
+            }
+            delay(300_000)
+        }
+    }
 
     // Hitung file yang bisa dibebaskan (lebih jarang, karena menelusuri folder).
     LaunchedEffect(folders) {
@@ -196,9 +219,15 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit, onOpenHelp: () 
                         fontSize = 13.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
-                IconButton(onClick = onOpenHelp) {
-                    Icon(Icons.Filled.Info, contentDescription = "Bantuan", tint = Muted)
+                Button(
+                    onClick = onOpenHelp,
+                    shape = RoundedCornerShape(20.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    modifier = Modifier.height(38.dp),
+                ) {
+                    Text("Panduan", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
+                Spacer(Modifier.size(10.dp))
                 Box(
                     Modifier
                         .size(42.dp)
@@ -209,6 +238,33 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit, onOpenHelp: () 
                     Text(
                         prefs.member.take(1).uppercase(),
                         color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp,
+                    )
+                }
+            }
+
+            // ---- Sisa OneDrive ----
+            if (quotaTotal > 0) {
+                Panel {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("OneDrive keluarga", fontSize = 13.sp, color = Muted, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Text("${formatBytes(quotaTotal - quotaRemaining)} terpakai", fontSize = 12.sp, color = Muted)
+                    }
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(formatBytes(quotaRemaining), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            "  sisa dari ${formatBytes(quotaTotal)}",
+                            fontSize = 14.sp, color = Muted,
+                            modifier = Modifier.padding(bottom = 2.dp),
+                        )
+                    }
+                    val usedFrac = ((quotaTotal - quotaRemaining).toFloat() / quotaTotal).coerceIn(0f, 1f)
+                    LinearProgressIndicator(
+                        progress = { usedFrac },
+                        color = if (usedFrac > 0.9f) BadRed else Accent,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
                     )
                 }
             }
@@ -437,7 +493,7 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit, onOpenHelp: () 
             Panel {
                 SwitchRow(
                     "Tanya dulu sebelum menghapus",
-                    "Kirim notifikasi, Om yang menekan tombol hapus",
+                    "Kirim notifikasi, kamu yang menekan tombol hapus",
                     askFirst,
                 ) {
                     askFirst = it
@@ -524,7 +580,7 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit, onOpenHelp: () 
                 if (updatedFolder.move && !f.move) {
                     Toast.makeText(
                         context,
-                        "Mode Pindahkan aktif. ${if (prefs.askFirst) "Om akan diberi tahu sebelum ada file yang dihapus." else ""}",
+                        "Mode Pindahkan aktif. ${if (prefs.askFirst) "Kamu akan diberi tahu sebelum ada file yang dihapus." else ""}",
                         Toast.LENGTH_LONG,
                     ).show()
                 }
