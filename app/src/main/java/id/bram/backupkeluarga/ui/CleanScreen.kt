@@ -86,7 +86,8 @@ fun CleanScreen(onClose: () -> Unit) {
     LaunchedEffect(reloadTick) {
         val l = withContext(Dispatchers.IO) { Cleaner.eligible(context) }
         list = l
-        selected = l.map { it.path }.toSet()
+        // Bawaan: hanya video yang tercentang (paling besar & paling menghemat ruang).
+        selected = l.filter { it.isVideo }.map { it.path }.toSet()
     }
 
     val items = list.orEmpty()
@@ -164,6 +165,25 @@ fun CleanScreen(onClose: () -> Unit) {
                             "(Beranda › ketuk nama folder), dan filenya sudah ter-upload serta cukup lama.",
                         color = Muted, fontSize = 14.sp,
                     )
+                }
+            }
+
+            if (items.isNotEmpty()) {
+                item(key = "select_all") {
+                    val allOn = items.all { it.path in selected }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "${chosen.size} dari ${items.size} file dipilih",
+                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                selected = if (allOn) emptySet() else items.map { it.path }.toSet()
+                            },
+                            enabled = !running,
+                        ) { Text(if (allOn) "Batalkan semua" else "Pilih semua") }
+                    }
                 }
             }
 
