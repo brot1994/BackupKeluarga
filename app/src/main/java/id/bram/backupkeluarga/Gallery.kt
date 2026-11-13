@@ -100,7 +100,7 @@ object GalleryRepo {
             val root = File(folder.path)
             if (!root.isDirectory) continue
             root.walkTopDown()
-                .onEnter { it == root || !it.name.startsWith(".") }
+                .onEnter { it == root || (!it.name.startsWith(".") && !FolderSuggestions.isRestoreDir(it.absolutePath)) }
                 .filter { it.isFile && !it.name.startsWith(".") && Media.isMedia(it.name) }
                 .forEach { f ->
                     val rel = f.relativeTo(root).invariantSeparatorsPath

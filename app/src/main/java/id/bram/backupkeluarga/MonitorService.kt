@@ -53,7 +53,7 @@ class MonitorService : Service() {
             val root = File(folder.path)
             if (!root.isDirectory) continue
             root.walkTopDown()
-                .onEnter { it == root || !it.name.startsWith(".") }
+                .onEnter { it == root || (!it.name.startsWith(".") && !FolderSuggestions.isRestoreDir(it.absolutePath)) }
                 .filter { it.isDirectory }
                 .take(300)
                 .forEach { dir ->

@@ -52,7 +52,7 @@ object Cleaner {
             val root = File(folder.path)
             if (!root.isDirectory) continue
             root.walkTopDown()
-                .onEnter { it == root || !it.name.startsWith(".") }
+                .onEnter { it == root || (!it.name.startsWith(".") && !FolderSuggestions.isRestoreDir(it.absolutePath)) }
                 .filter { it.isFile && !it.name.startsWith(".") }
                 .forEach { f ->
                     val size = f.length()

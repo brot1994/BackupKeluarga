@@ -64,6 +64,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import id.bram.backupkeluarga.BuildConfig
 import id.bram.backupkeluarga.Cleaner
 import id.bram.backupkeluarga.Db
+import id.bram.backupkeluarga.FolderSuggestions
 import id.bram.backupkeluarga.Graph
 import id.bram.backupkeluarga.Prefs
 import id.bram.backupkeluarga.Scheduler
@@ -92,6 +93,7 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit, onOpenHelp: () 
     var needsReauth by remember { mutableStateOf(prefs.needsReauth) }
     var confirmSignOut by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<WatchedFolder?>(null) }
+    var addingFolder by remember { mutableStateOf(false) }
     var askFirst by remember { mutableStateOf(prefs.askFirst) }
     var freeBelowGb by remember { mutableIntStateOf(prefs.freeBelowGb) }
     var freeable by remember { mutableStateOf(0 to 0L) }
@@ -178,6 +180,10 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit, onOpenHelp: () 
         val path = treeUriToPath(uri)
         if (path == null) {
             Toast.makeText(context, "Pilih folder di memori internal HP", Toast.LENGTH_LONG).show()
+            return@rememberLauncherForActivityResult
+        }
+        if (FolderSuggestions.isRestoreDir(path)) {
+            Toast.makeText(context, "Folder ini berisi file yang diunduh dari OneDrive, tidak perlu dibackup lagi", Toast.LENGTH_LONG).show()
             return@rememberLauncherForActivityResult
         }
         if (folders.any { it.path == path }) {
@@ -423,7 +429,7 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit, onOpenHelp: () 
             // ---- Folder ----
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { SectionLabel("Folder yang dibackup") }
-                TextButton(onClick = { folderPicker.launch(null) }) { Text("+ Tambah") }
+                TextButton(onClick = { addingFolder = true }) { Text("+ Tambah") }
             }
             Panel {
                 if (folders.isEmpty()) {
@@ -566,6 +572,27 @@ fun HomeScreen(onSignedOut: () -> Unit, onOpenClean: () -> Unit, onOpenHelp: () 
             }
             Text("Versi ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = Muted)
         }
+    }
+
+    if (addingFolder) {
+        val suggestions = remember(folders) { FolderSuggestions.available(folders) }
+        AddFolderDialog(
+            suggestions = suggestions,
+            onAdd = { picked ->
+                val updated = folders + picked
+                prefs.folders = updated
+                folders = updated
+                addingFolder = false
+                Scheduler.startMonitor(context)
+                Scheduler.syncNow(context)
+                Toast.makeText(context, "${picked.size} folder ditambahkan", Toast.LENGTH_SHORT).show()
+            },
+            onPickOther = {
+                addingFolder = false
+                folderPicker.launch(null)
+            },
+            onDismiss = { addingFolder = false },
+        )
     }
 
     editing?.let { f ->
