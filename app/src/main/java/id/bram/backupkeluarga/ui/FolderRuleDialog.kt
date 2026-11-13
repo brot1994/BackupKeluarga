@@ -82,8 +82,28 @@ fun FolderRuleDialog(folder: WatchedFolder, onSave: (WatchedFolder) -> Unit, onD
                         "File dihapus dari HP hanya setelah upload terverifikasi, dan hanya kalau memenuhi syarat di bawah.",
                         fontSize = 13.sp, color = Muted,
                     )
+                    Text("Pindahkan setelah", fontWeight = FontWeight.SemiBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(30, 60, 90).forEach { d ->
+                            val sel = days == d.toString()
+                            TextButton(
+                                onClick = { days = d.toString() },
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (sel) AccentSoft else Color(0xFFF1F2F5)),
+                            ) {
+                                Text(
+                                    "$d hari",
+                                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (sel) Accent else Ink,
+                                )
+                            }
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("Umur file lebih dari", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Text("atau isi sendiri", modifier = Modifier.weight(1f), fontSize = 13.sp, color = Muted)
                         OutlinedTextField(
                             value = days,
                             onValueChange = { v -> days = v.filter { it.isDigit() }.take(4) },
